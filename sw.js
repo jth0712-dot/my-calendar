@@ -1,5 +1,5 @@
 // 오프라인 실행용 캐시 (네트워크 우선, 실패 시 캐시)
-const CACHE = 'my-calendar-v1.26-sync2';
+const CACHE = 'my-calendar-v1.26-sync3';
 const SHELL = ['./', 'index.html', 'web-shim.js', 'sync-core.js', 'web-config.js', 'web-sync.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -16,7 +16,7 @@ self.addEventListener('fetch', e => {
       const copy = res.clone();
       caches.open(CACHE).then(c => c.put(e.request, copy));
       return res;
-    }).catch(() => caches.match(e.request).then(r => r || caches.match('index.html')))
+    }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match('index.html')))
   );
 });
 self.addEventListener('notificationclick', e => {
