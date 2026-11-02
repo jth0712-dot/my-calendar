@@ -1,6 +1,6 @@
 // 오프라인 실행용 캐시 (네트워크 우선, 실패 시 캐시)
-const CACHE = 'my-calendar-v1.26';
-const SHELL = ['./', 'index.html', 'web-shim.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
+const CACHE = 'my-calendar-v1.26-sync';
+const SHELL = ['./', 'index.html', 'web-shim.js', 'sync-core.js', 'web-config.js', 'web-sync.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

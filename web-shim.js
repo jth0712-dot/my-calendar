@@ -3,7 +3,7 @@
 // 데이터: 이 기기 브라우저의 IndexedDB (앱 삭제/사이트 데이터 삭제 시 함께 삭제됨)
 (function () {
   const DB_NAME = 'my-calendar', DB_VER = 1;
-  let db = null, data = {}, attachments = new Map();
+  let db = null, data = {}, attachments = new Map(), saveSeq = 0;
 
   function openDb() {
     return new Promise((resolve, reject) => {
@@ -47,6 +47,7 @@
       try {
         data = JSON.parse(JSON.stringify(d || {}));
         data.updatedAt = new Date().toISOString();
+        saveSeq++;
         tx('kv', 'readwrite', s => s.put(data, 'data')).catch(warnSave);
         window.dispatchEvent(new CustomEvent('calendar:saved'));
         return true;
@@ -77,17 +78,45 @@
         } else new Notification(title || '일정 알림', { body: body || '' });
       } catch (e) { console.error(e); }
     },
-    // 2단계(동기화)에서 사용
-    _exportAll: () => ({ data: JSON.parse(JSON.stringify(data || {})), attachments: Object.fromEntries(attachments) }),
-    _importAll: async (payload) => {
-      data = payload.data || {};
+  };
+
+  // 동기화 모듈(web-sync.js)용 내부 저장소 접근
+  const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
+  window.__mcStore = {
+    ready: null,
+    kvGet: k => tx('kv', 'readonly', s => s.get(k)),
+    kvPut: (k, v) => tx('kv', 'readwrite', s => s.put(v, k)),
+    kvDel: k => tx('kv', 'readwrite', s => s.delete(k)),
+    snapshot: () => ({ data: JSON.parse(JSON.stringify(data || {})), seq: saveSeq }),
+    applyIfSeq: async (merged, seq) => {
+      if (seq !== saveSeq) return false;
+      data = JSON.parse(JSON.stringify(merged || {}));
+      data.updatedAt = new Date().toISOString();
+      saveSeq++;
       await tx('kv', 'readwrite', s => s.put(data, 'data'));
-      for (const [k, v] of Object.entries(payload.attachments || {})) {
-        attachments.set(k, v);
-        await tx('attachments', 'readwrite', s => s.put(v, k));
-      }
+      try { if (typeof window.applyExternalData === 'function') window.applyExternalData(JSON.parse(JSON.stringify(data))); } catch (e) { console.error(e); }
+      return true;
+    },
+    listAttachments: async () => new Set(attachments.keys()),
+    readAttachmentBytes: async name => {
+      const url = attachments.get(name) || '';
+      const i = url.indexOf('base64,');
+      if (i < 0) return null;
+      const bin = atob(url.slice(i + 7)), out = new Uint8Array(bin.length);
+      for (let k = 0; k < bin.length; k++) out[k] = bin.charCodeAt(k);
+      return out;
+    },
+    writeAttachmentBytes: async (name, bytes) => {
+      const ext = String(name).split('.').pop().toLowerCase();
+      let s = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      const url = `data:${MIME[ext] || 'image/png'};base64,${btoa(s)}`;
+      attachments.set(name, url);
+      await tx('attachments', 'readwrite', st => st.put(url, name));
     }
   };
+  let resolveReady;
+  window.__mcStore.ready = new Promise(r => { resolveReady = r; });
 
   function startApp() {
     const src = document.getElementById('appMain');
@@ -107,6 +136,7 @@
     }
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch {}
     startApp();
+    resolveReady();
     // 알림 권한은 첫 터치 때 요청
     document.addEventListener('click', () => {
       try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
