@@ -106,11 +106,33 @@
       }
     }
     const keys = new Set([...Object.keys(L), ...Object.keys(R)].filter(k => !COLLECTIONS.includes(k)));
+    // v1.29: 이 기기의 첫 동기화(base 없음)에서는 설정(구분·순서 등)을 '데이터가 더 많은 쪽' 것으로 통째로 맞춤
+    //        (새로 설치한 기기의 기본 설정이 실제 설정을 덮어쓰던 문제 수정)
+    const firstSync = !base;
+    const size = d => COLLECTIONS.reduce((n, c) => n + d[c].length, 0);
+    const settingsFrom = firstSync ? (size(L) > size(R) ? L : R) : null;
     for (const k of keys) {
-      const v = pick(B[k], L[k], R[k]);
+      const v = firstSync ? (settingsFrom[k] !== undefined ? settingsFrom[k] : (L[k] !== undefined ? L[k] : R[k])) : pick(B[k], L[k], R[k]);
       if (v !== undefined) out[k] = clone(v);
     }
+    repairCategories(out, [L, R, B]);
     return { merged: out, conflicts };
+  }
+
+  // v1.29: 일정·지시사항이 가리키는 구분이 설정에 없으면 다른 쪽(이 기기/드라이브/지난 동기화) 정의로 되살림
+  function repairCategories(out, sources) {
+    const fix = (defKey, orderKey, ids, fallback) => {
+      out[defKey] = out[defKey] && typeof out[defKey] === 'object' ? out[defKey] : {};
+      if (!Array.isArray(out[orderKey])) out[orderKey] = Object.keys(out[defKey]);
+      for (const id of ids) {
+        if (!id || out[defKey][id]) continue;
+        const src = sources.find(d => d && d[defKey] && d[defKey][id]);
+        out[defKey][id] = src ? clone(src[defKey][id]) : fallback(id);
+        if (!out[orderKey].includes(id)) out[orderKey].push(id);
+      }
+    };
+    if (out.categories) fix('categories', 'categoryOrder', [...new Set(out.events.map(e => e.category))], () => ({ label: '복구된 구분', color: '#7d8882' }));
+    if (out.instructionCategories) fix('instructionCategories', 'instructionCategoryOrder', [...new Set(out.instructionNotes.map(n => n.category || 'executive'))], () => ({ label: '복구된 구분' }));
   }
 
   function referencedAttachments(d) {
